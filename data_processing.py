@@ -457,8 +457,6 @@ if __name__ == '__main__':
 		.repartition(num_partitions) \
 		.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-	proc_df.show()
-
 	train_df, test_df = proc_df.randomSplit([0.9, 0.1], seed=45)
 	val_df, test_df = test_df.randomSplit([0.5, 0.5], seed=45)
 
