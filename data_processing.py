@@ -394,6 +394,32 @@ def write_bin(output_file_name):
 	return write_bin_
 
 
+def process_data(df):
+	"""Run basic processing."""
+	df = df.withColumn('processed_abstract',
+			process_text()('abstract')) \
+		.withColumn('processed_full_text',
+			process_text()('full_text')) \
+		.where(
+			(F.col('processed_full_text').isNotNull()) \
+			& (F.col('processed_abstract').isNotNull()) \
+			& (F.col('pmc_id').isNotNull())) \
+		.select(
+			'pmc_id',
+			'processed_abstract',
+			'processed_full_text')
+
+	return df
+
+
+def split_data(df):
+	"""Three-way split data."""
+	train_df, test_df = df.randomSplit([0.9, 0.1], seed=45)
+	val_df, test_df = test_df.randomSplit([0.5, 0.5], seed=45)
+
+	return train_df, val_df, test_dfs
+
+
 if __name__ == '__main__':
 
 	logging.basicConfig(
@@ -440,25 +466,14 @@ if __name__ == '__main__':
 	spark = SparkSession(sc)
 
 	tf.logging.info('Reading data files...')
-	proc_df = read_data(sc, file_list, num_partitions) \
+	df = read_data(sc, file_list, num_partitions) \
 		.repartition(num_partitions) \
-		.withColumn('processed_abstract',
-			process_text()('abstract')) \
-		.withColumn('processed_full_text',
-			process_text()('full_text')) \
-		.where(
-			(F.col('processed_full_text').isNotNull()) \
-			& (F.col('processed_abstract').isNotNull()) \
-			& (F.col('pmc_id').isNotNull())) \
-		.select(
-			'pmc_id',
-			'processed_abstract',
-			'processed_full_text') \
-		.repartition(num_partitions) \
+
+	proc_df = process_data(df)
+	proc_df = proc_df.repartition(num_partitions) \
 		.persist(StorageLevel.MEMORY_AND_DISK_SER)
 
-	train_df, test_df = proc_df.randomSplit([0.9, 0.1], seed=45)
-	val_df, test_df = test_df.randomSplit([0.5, 0.5], seed=45)
+	train_df, val_df, test_df = split_data(proc_df)
 
 	write_ids(train_df, output_path, 'train')
 	write_ids(val_df, output_path, 'val')
@@ -468,12 +483,16 @@ if __name__ == '__main__':
 	tf.logging.info('Vocabulary size: %d' % len(wrd_list))
 	write_vocab(wrd_list, output_path)
 
+	# This is hacky. We trigger the execution of write_bin by calling count.
 	train_df.repartition(num_partitions) \
-		.rdd.mapPartitionsWithIndex(write_bin(os.path.join(output_train_path, "train"))) \
+		.rdd.mapPartitionsWithIndex(
+			write_bin(os.path.join(output_train_path, "train"))) \
 		.count()
 	test_df.repartition(num_partitions) \
-		.rdd.mapPartitionsWithIndex(write_bin(os.path.join(output_test_path, "test"))) \
+		.rdd.mapPartitionsWithIndex(
+			write_bin(os.path.join(output_test_path, "test"))) \
 		.count()
 	val_df.repartition(num_partitions) \
-		.rdd.mapPartitionsWithIndex(write_bin(os.path.join(output_val_path, "val"))) \
+		.rdd.mapPartitionsWithIndex(
+			write_bin(os.path.join(output_val_path, "val"))) \
 		.count()
