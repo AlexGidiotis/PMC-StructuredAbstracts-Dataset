@@ -33,35 +33,6 @@ TITLE_END = '</t>'
 SECTION_START = '<sec>'
 SECTION_END = '</sec>'
 
-KEYWORDS = {
-	'introduction': 'i',
-	'case': 'i',
-	'purpose': 'i',
-	'objective': 'i',
-	'objectives': 'i',
-	'aim': 'i',
-	'summary': 'i',
-	'findings': 'l',
-	'background': 'i',
-	'background/aims': 'i',
-	'literature': 'l',
-	'studies': 'l',
-	'methods': 'm',
-	'method': 'm',
-	'techniques': 'm',
-	'methodology': 'm',
-	'results': 'r',
-	'result': 'r',
-	'experiment': 'r',
-	'experiments': 'r',
-	'experimental': 'r',
-	'discussion': 'd',
-	'limitations': 'd',
-	'conclusion': 'c',
-	'conclusions': 'c',
-	'concluding': 'c'
-}
-
 
 def remove_namespace(tree):
 	"""
@@ -190,18 +161,6 @@ def read_file(file_path):
 					.replace('\n', ' ') \
 					.replace('\t', ' ') \
 					.strip()
-				header = re.findall('<t>(.*?)<\/t>', abs_section_text)
-				# Check header for sec id.
-				abs_sec_id = 'o'
-				for head in header:
-					for wrd in head.split():
-						try:
-							abs_sec_id = KEYWORDS[wrd.lower()]
-							break
-						except:
-							continue
-
-				section_id = '<' + abs_sec_id + '>'
 
 				# Split into sentences sentences
 				abs_sents = sent_tokenize(abs_section_text)
@@ -211,8 +170,8 @@ def read_file(file_path):
 					 + ' ' + SENTENCE_END
 					abs_proc_text.append(proc_sent)
 				abs_proc_text = ' '.join(abs_proc_text)
-				abs_section = SECTION_START + section_id \
-				 + abs_proc_text + SECTION_END
+				abs_section = SECTION_START + abs_proc_text \
+				 + SECTION_END
 				abstracts.append(abs_section)
 			if len(abstracts) > 0:
 				abstract = ' '.join(abstracts)
@@ -236,19 +195,7 @@ def read_file(file_path):
 			section_text = re.sub('\s+', ' ', section_text)
 			# Discard short sections
 			if len(section_text.split()) > 5:
-				header = re.findall('<t>(.*?)<\/t>', section_text)
-				# Check header for sec id.
-				sec_id = 'o'
-				for head in header:
-					for wrd in head.split():
-						try:
-							sec_id = KEYWORDS[wrd.lower()]
-							break
-						except:
-							continue
-
-				section_id = '<' + sec_id + '>'
-				section = SECTION_START + section_id \
+				section = SECTION_START \
 				 + section_text + ' ' + SECTION_END
 				parts.append(section)
 
@@ -293,10 +240,6 @@ def process_text():
 		proc_text = re.sub('< /s >', '</s>', proc_text)
 		proc_text = re.sub('< t >', '<t>', proc_text)
 		proc_text = re.sub('< /t >', '</t>', proc_text)
-		proc_text = re.sub(
-			'< [ilmrdco] >',
-			lambda m: '<' + m.group()[2] + '>',
-			proc_text)
 
 		return proc_text
 
@@ -327,13 +270,6 @@ def create_vocab(df):
 	wrd_list.remove(SENTENCE_END)
 	wrd_list.remove(SECTION_START)
 	wrd_list.remove(SECTION_END)
-
-	for k in set(KEYWORDS.values() + ['o']):
-		sec_id = '<' + k + '>'
-		try:
-			wrd_list.remove(sec_id)
-		except:
-			pass
 
 	return wrd_list
 
