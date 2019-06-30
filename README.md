@@ -1,5 +1,5 @@
 # PMC-StructuredAbstracts-Dataset
-This repository contains code to produce the PMC Structured Abstracts dataset described in the paper *[Structured Summarization of Academic Publications](https://arxiv.org/abs/1905.07695)*. The code reads the .nxml files from the PMC-OA collection that can be found [here](https://www.ncbi.nlm.nih.gov/pmc/tools/openftlist) processes it and exports them into binary format.
+This repository contains code to produce the PMC Structured Abstracts dataset described in the paper *[Structured Summarization of Academic Publications](https://arxiv.org/abs/1905.07695)*. The code reads the .nxml files from the PMC-OA collection that can be found [here](https://www.ncbi.nlm.nih.gov/pmc/tools/openftlist) processes it and exports them into binary format. If you plan on using this dataset you should cite the original paper.
 
 In the pmc_ids directory we include the pmc ids that were part of the training, validation and test set in the experiments for the paper.
 
