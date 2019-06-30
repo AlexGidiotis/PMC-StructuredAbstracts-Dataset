@@ -1,6 +1,8 @@
 # PMC-StructuredAbstracts-Dataset
 This repository contains code to produce the PMC Structured Abstracts dataset described in the paper *[Structured Summarization of Academic Publications](https://arxiv.org/abs/1905.07695)*. The code reads the .nxml files from the PMC-OA collection that can be found [here](https://www.ncbi.nlm.nih.gov/pmc/tools/openftlist) processes it and exports them into binary format.
 
+In the pmc_ids directory we include the pmc ids that were part of the training, validation and test set in the experiments for the paper.
+
 # Instructions
 1. Download and extract the nxml format data files from the PMC website.
 
@@ -18,3 +20,6 @@ After running the processing you will end up with the following files:
 * Three directories, namely train, val, test with the .bin data files. *
 
 # Reading the .bin files
+In order to read the .bin files you should use a data generator. In sample_datagen.py we provide some sample code to read the .bin files.
+
+In order to get a better understanding of how to build data generators have a look at [this repository](https://github.com/abisee/pointer-generator) that uses the same data format.
