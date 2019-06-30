@@ -23,3 +23,15 @@ After running the processing you will end up with the following files:
 In order to read the .bin files you should use a data generator. In sample_datagen.py we provide some sample code to read the .bin files.
 
 In order to get a better understanding of how to build data generators have a look at [this repository](https://github.com/abisee/pointer-generator) that uses the same data format.
+
+# Dependencies
+* [Pyspark](https://spark.apache.org/docs/latest/api/python/pyspark.html) *
+* [Tensorflow](https://www.tensorflow.org/) *
+* [LXML](https://lxml.de/) *
+* [NLTK](https://www.nltk.org/) *
+* [NumPy](https://www.numpy.org/) *
+
+To install all the required dependecies run 
+```
+pip install -r requirements.txt.
+```
