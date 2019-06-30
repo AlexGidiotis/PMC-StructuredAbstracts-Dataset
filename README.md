@@ -4,7 +4,8 @@ This repository contains code to produce the PMC Structured Abstracts dataset de
 # Instructions
 1. Download and extract the nxml format data files from the PMC website.
 
-2. ```
+2. Process the data running the following: 
+```
 python data_processing.py -i /path/to/the/top/directory/of/the/data/files -o /path/to/the/output/directory -np 1000
 ```
 
