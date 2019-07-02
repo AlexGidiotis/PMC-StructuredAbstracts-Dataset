@@ -459,3 +459,4 @@ if __name__ == '__main__':
 		.rdd.mapPartitionsWithIndex(
 			write_bin(os.path.join(output_val_path, "val"))) \
 		.count()
+		
