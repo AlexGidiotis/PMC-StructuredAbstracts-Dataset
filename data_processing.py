@@ -33,7 +33,13 @@ SEC_END = '</sec>'
 
 
 def create_filelist(in_path, out_path):
-	""""""
+	"""Reads the dir tree under in_path and creates
+	 a list of all nxml file.
+	
+	Args:
+		in_path: The path to the top level of the data
+		out_path: The filename to write the filelist
+	"""
 	nxml_ext_regex = re.compile('\.nxml$')
 	with open(out_path, 'w') as of:
 		for path, _, files in os.walk(in_path):
@@ -42,15 +48,23 @@ def create_filelist(in_path, out_path):
 					file_name = path + '/' + file
 					of.write(file_name)
 					of.write('\n')
-
-	return out_path
+	return
 
 
 def read_files(
 		sc,
 		filelist,
 		num_part):
-	""""""
+	"""Read the files from filelist into a dataframe.
+	
+	Args:
+		sc: An active spark context
+		filelist: The filename of the filelist txt
+		num_part: The number of partitions
+
+	Returns:
+		df: A dataframe with the read files
+	"""
 	path_rdd = sc.textFile(filelist, minPartitions=num_part)
 	df = path_rdd.map(
 			lambda x: pyspark.sql.Row(
@@ -65,7 +79,18 @@ def read_files(
 
 
 def read_file(file_path):
-	""""""
+	"""Read a single file.
+	This will be called as map function by spark.
+
+	Args:
+		file_path: The filename
+
+	Returns:
+		data_dict: An object with fields:
+		 pmc_id: string or None
+		 abstract: string or None
+		 full_text: string or None
+	"""
 	# We skip files we cannot read correctly.
 	try:
 		tree = read_xml(file_path, nxml=True)
@@ -187,7 +212,7 @@ def remove_namespace(tree):
 
 
 def stringify_children(node):
-	""""""
+	"""Read and stringify the children of each nxml node."""
 	section_parts = []
 	for ch in node.getchildren():
 		string_text = ''
@@ -218,7 +243,7 @@ def stringify_children(node):
 def process_text():
 	"""UDF wrapper for process_text_"""
 	def process_text_(text):
-		""""""
+		"""Processing for string columns."""
 		text = text.encode('utf8')
 		try:
 			processed_text = word_tokenize(text.decode('utf8'))
@@ -250,7 +275,16 @@ def split_data(df):
 
 
 def create_vocab(df):
-	""""""
+	"""Create a vocabulary from a dataframe.
+	Also removes some special tokens.
+	
+	Args:
+		df: A dataframe with columns'processed_abstract'
+		 and 'processed_full_text'
+
+	Return:
+		vocab: A wordlist sorted by frequency
+	"""
 	concat_udf = F.udf(
 		lambda cols: " ".join([col for col in cols]),
 		spark_types.StringType())
@@ -279,8 +313,17 @@ def create_vocab(df):
 	return vocab
 
 
-def write_ids(df, out_path, flag):
-	""""""	
+def write_ids(
+		df,
+		out_path,
+		flag):
+	"""Write pmc ids into a text file.
+
+	Args:
+		df: A dataframe with column 'pmc_id'
+		out_path: The path to write the ids
+		flag: One of 'train', 'val', 'test'
+	"""	
 	id_file = os.path.join(out_path, flag + '_ids.txt')
 	with open(id_file, 'w') as writer:
 		for pmcid in df.select('pmc_id').collect():
@@ -292,7 +335,12 @@ def write_ids(df, out_path, flag):
 
 
 def write_vocab(vocab, out_path):
-	""""""
+	"""Write the vocab to text file.
+	
+	Args:
+		vocab: A list of tokens sorted by frequency
+		out_path: The path to write the vocab
+	"""
 	with open(os.path.join(out_path, 'vocab'), 'w') as writer:
 		for i, word in enumerate(vocab):
 			writer.write(word.encode('utf8') + ' ' + str(i) + '\n')
@@ -302,9 +350,9 @@ def write_vocab(vocab, out_path):
 
 
 def write_bin(output_fname):
-	"""UDF wrapper for write_bin."""
+	"""Partition function wrapper for write_bin."""
 	def write_bin_(part_idx, partition):
-		""""""
+		"""Write a partition into a .bin file in tf.exmple format."""
 		partition_data = list(partition)
 		num_items = len(partition_data)
 		if not partition_data:
@@ -374,14 +422,12 @@ if __name__ == '__main__':
 
 	tf.logging.info('Creating filelist...')
 	filelist_file = os.path.join(output_path, 'filelist.txt')
-	file_list = create_filelist(
-		input_path,
-		filelist_file)
+	create_filelist(input_path, filelist_file)
 	sc = pyspark.SparkContext()
 	spark = pyspark.sql.SparkSession(sc)
 
 	tf.logging.info('Reading data files...')
-	df = read_files(sc, file_list, num_partitions) \
+	df = read_files(sc, filelist_file, num_partitions) \
 		.repartition(num_partitions)
 
 	proc_df = process_data(df)
@@ -398,7 +444,9 @@ if __name__ == '__main__':
 	write_ids(val_df, output_path, 'val')
 	write_ids(test_df, output_path, 'test')
 
-	# This is hacky. We trigger the execution of write_bin by calling count.
+	# This is hacky. Since write_bin is a partition function it will need an
+	# action to trigger execution. 
+	# We trigger the execution of write_bin by calling the count action.
 	train_df.repartition(num_partitions) \
 		.rdd.mapPartitionsWithIndex(
 			write_bin(os.path.join(output_train_path, "train"))) \
