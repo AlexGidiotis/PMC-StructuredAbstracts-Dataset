@@ -12,32 +12,27 @@ import sys
 
 from lxml import etree
 
-from pyspark.sql import SparkSession, Row
-from pyspark import SparkContext, StorageLevel
-from pyspark.sql import functios as F
+import pyspark
+from pyspark.sql import functions as F
 from pyspark.sql import types as spark_types
-from pyspark.ml.feature import CountVectorizer, Tokenizer
+from pyspark.ml import feature as ml_feature
 
 from nltk import word_tokenize, sent_tokenize
 
 import tensorflow as tf
 from tensorflow.core.example import example_pb2
 
-# We use these to separate the summary sentences in the .bin datafiles
+
 SENTENCE_START = '<s>'
 SENTENCE_END = '</s>'
-
 TITLE_START = '<t>'
 TITLE_END = '</t>'
-
 SECTION_START = '<sec>'
 SECTION_END = '</sec>'
 
 
 def remove_namespace(tree):
-	"""
-	Strip namespace from parsed XML
-	"""
+	"""Strip namespace from parsed XML."""
 	for node in tree.iter():
 		try:
 			has_namespace = node.tag.startswith('{')
@@ -48,9 +43,7 @@ def remove_namespace(tree):
 
 
 def read_xml(path, nxml=False):
-	"""
-	Parse tree from given XML path
-	"""
+	"""Parse tree from given XML path."""
 	try:
 		tree = etree.parse(path)
 	except:
@@ -65,40 +58,38 @@ def read_xml(path, nxml=False):
 
 
 def stringify_children(node):
-	"""
-	Recursively read the section headers and text into string.
-	"""
-	parts = []
+	"""Recursively read the section headers and text into string."""
+	section_parts = []
 	for ch in node.getchildren():
-		text = ''
+		string_text = ''
 		if (ch.tag == 'title') or (ch.tag == 'p'):
 			for t in ch.xpath("text()"):
 				t = t.rstrip()
 				if len(t) > 1:
 					if ch.tag == 'title':
-						text += ' ' + TITLE_START \
+						string_text += ' ' + TITLE_START \
 						 + t.rstrip('(') \
 						 	.lstrip(')') \
 						 	.rstrip('[') \
 						 	.lstrip(']') + TITLE_END
 					else:
-						text += ' ' + t.rstrip('(') \
+						string_text += ' ' + t.rstrip('(') \
 							.lstrip(')') \
 							.rstrip('[') \
 							.lstrip(']')
-			parts.append(text)
+			section_parts.append(string_text)
 		else:
-			text += ' ' + stringify_children(ch)
-			parts.append(text)
-	return ' '.join(filter(None, parts))
+			string_text += ' ' + stringify_children(ch)
+			section_parts.append(string_text)
+	return ' '.join(filter(None, section_parts))
 
 
 def create_filelist(in_path, out_path):
-	"""Create a list of files to read"""
+	"""Create a list of files to read and save to txt."""
 	files_read = 0
 	nxml_sign = re.compile('\.nxml$')
-	file_list = os.path.join(out_path, 'filelist.txt')
-	with open(file_list, 'w') as of:
+	filelist_file = os.path.join(out_path, 'filelist.txt')
+	with open(filelist_file, 'w') as of:
 		for path, dirs, files in os.walk(in_path):
 			for f in files:
 				if nxml_sign.search(f) is not None:
@@ -107,14 +98,14 @@ def create_filelist(in_path, out_path):
 					of.write(file_name)
 					of.write('\n')
 
-	return file_list
+	return filelist_file
 
 
-def read_data(sc, file_list, num_partitions):
-	"""Read the filelist into a spark dataframe."""
-	path_rdd = sc.textFile(file_list, minPartitions=num_partitions)
+def read_data(sc, filelist, num_partitions):
+	"""Read the files from filelist into a spark dataframe."""
+	path_rdd = sc.textFile(filelist, minPartitions=num_partitions)
 	df = path_rdd.map(
-			lambda x: Row(
+			lambda x: pyspark.sql.Row(
 				file_name=os.path.basename(x),
 				**read_file(x))) \
 		.toDF() \
@@ -127,7 +118,7 @@ def read_data(sc, file_list, num_partitions):
 
 def read_file(file_path):
 	"""Read a data file and extract abstract, full text and pmc id."""
-	# Skip bad files.
+	# We skip files we cannot read correctly.
 	try:
 		tree = read_xml(file_path, nxml=True)
 	except:
@@ -147,7 +138,7 @@ def read_file(file_path):
 	except:
 		pmcid = None
 
-	# Skip bad abstracts.
+	# Ignore malformed abstracts
 	try:
 		# Read abstract
 		abstracts = []
@@ -155,7 +146,7 @@ def read_file(file_path):
 		if len(abstract_tree) > 1:
 			for a in abstract_tree:
 				abs_section_text = stringify_children(a)
-				if len(abs_section_text) < 3:
+				if len(abs_section_text) < 5:
 					continue
 				abs_section_text = re.sub('\s+', ' ', abs_section_text) \
 					.replace('\n', ' ') \
@@ -173,19 +164,20 @@ def read_file(file_path):
 				abs_section = SECTION_START + abs_proc_text \
 				 + SECTION_END
 				abstracts.append(abs_section)
-			if len(abstracts) > 0:
+
+			if not abstracts:
+				abstract = None
+			else:
 				abstract = ' '.join(abstracts)
-				# We don't want bad abstracts
+				# We don't want very short abstracts
 				if len(abstract) < 5:
 					abstract = None
-			else:
-				abstract = None
 		else:
 			abstract = None
-	except:
+	except: # If anything fails we ignore.
 		abstract = None
 
-	# Skip bad full texts.
+	# Ignore malformed full texts.
 	try:
 		# Read body
 		body = tree.xpath('.//body')[0]
@@ -255,11 +247,11 @@ def create_vocab(df):
 		'all_text', concat_udf(F.array(
 			'processed_abstract',
 			'processed_full_text')))
-	tokenizer = Tokenizer(
+	tokenizer = ml_feature.Tokenizer(
 		inputCol='all_text',
 		outputCol='tokens')
 	df = tokenizer.transform(df)
-	cv = CountVectorizer(
+	cv = ml_feature.CountVectorizer(
 		inputCol='tokens',
 		outputCol='vectors',
 		vocabSize=200000)
@@ -398,8 +390,8 @@ if __name__ == '__main__':
 	file_list = create_filelist(
 		input_path,
 		output_path)
-	sc = SparkContext()
-	spark = SparkSession(sc)
+	sc = pyspark.SparkContext()
+	spark = pyspark.sql.SparkSession(sc)
 
 	tf.logging.info('Reading data files...')
 	df = read_data(sc, file_list, num_partitions) \
@@ -407,7 +399,7 @@ if __name__ == '__main__':
 
 	proc_df = process_data(df)
 	proc_df = proc_df.repartition(num_partitions) \
-		.persist(StorageLevel.MEMORY_AND_DISK_SER)
+		.persist(pyspark.StorageLevel.MEMORY_AND_DISK_SER)
 
 	train_df, val_df, test_df = split_data(proc_df)
 
