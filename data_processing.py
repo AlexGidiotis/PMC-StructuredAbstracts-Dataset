@@ -105,64 +105,14 @@ def read_file(file_path):
 	# Ignore malformed abstracts
 	try:
 		# Read abstract
-		abstracts = []
-		abstract_tree = tree.findall('.//abstract')[0]
-		if len(abstract_tree) > 1: # Else there is no abstract
-			for abstr in abstract_tree:
-				abs_section_text = stringify_children(abstr)
-				if len(abs_section_text) < 5:
-					continue
-				abs_section_text = re.sub('\s+', ' ', abs_section_text) \
-					.replace('\n', ' ') \
-					.replace('\t', ' ') \
-					.strip()
-
-				# Split into sentences
-				abs_sents = sent_tokenize(abs_section_text)
-				abs_proc_text = []
-				for sent in abs_sents:
-					proc_sent = SENT_START + sent \
-					 + ' ' + SENT_END
-					abs_proc_text.append(proc_sent)
-				abs_proc_text = ' '.join(abs_proc_text)
-				abs_section = SEC_START + abs_proc_text \
-				 + SEC_END
-				abstracts.append(abs_section)
-
-			if not abstracts:
-				abstract = None
-			else:
-				abstract = ' '.join(abstracts)
-				# We don't want very short abstracts
-				if len(abstract) < 5:
-					abstract = None
-		else:
-			abstract = None
+		abstract = read_abstract(tree)
 	except: # If anything fails we ignore.
 		abstract = None
 
 	# Ignore malformed full texts.
 	try:
 		# Read body
-		body = tree.xpath('.//body')[0]
-		parts = []
-		for i, part in enumerate(body):
-			section_text = stringify_children(part)
-			section_text = re.sub('\s+', ' ', section_text)
-			# Discard short sections
-			if len(section_text.split()) > 5:
-				section = SEC_START \
-				 + section_text + ' ' + SEC_END
-				parts.append(section)
-
-		full_text = ' '.join(parts).lstrip()
-		full_text = re.sub('\s+', ' ', full_text)
-		full_text = re.sub('\s\.', '.', full_text)
-		full_text = re.sub('\s,', ',', full_text)
-
-		# We don't want bad texts
-		if len(full_text) < 10:
-			full_text = None
+		full_text = read_ft(tree)
 	# Sometimes there is no text body
 	except:
 		full_text = None
@@ -183,6 +133,70 @@ def read_file(file_path):
 	}
 
 	return data_dict
+
+
+def read_abstract(tree):
+	"""Read the abstract nodes."""
+	abstracts = []
+	abstract_tree = tree.findall('.//abstract')[0]
+	if len(abstract_tree) > 1: # Else there is no abstract
+		for abstr in abstract_tree:
+			abs_section_text = stringify_children(abstr)
+			if len(abs_section_text) < 5:
+				continue
+			abs_section_text = re.sub('\s+', ' ', abs_section_text) \
+				.replace('\n', ' ') \
+				.replace('\t', ' ') \
+				.strip()
+
+			# Split into sentences
+			abs_sents = sent_tokenize(abs_section_text)
+			abs_proc_text = []
+			for sent in abs_sents:
+				proc_sent = SENT_START + sent \
+				 + ' ' + SENT_END
+				abs_proc_text.append(proc_sent)
+			abs_proc_text = ' '.join(abs_proc_text)
+			abs_section = SEC_START + abs_proc_text \
+			 + SEC_END
+			abstracts.append(abs_section)
+
+		if not abstracts:
+			abstract = None
+		else:
+			abstract = ' '.join(abstracts)
+			# We don't want very short abstracts
+			if len(abstract) < 5:
+				abstract = None
+	else:
+		abstract = None
+
+	return abstract
+
+
+def read_ft(tree):
+	"""Read the body nodes."""
+	body = tree.xpath('.//body')[0]
+	parts = []
+	for i, part in enumerate(body):
+		section_text = stringify_children(part)
+		section_text = re.sub('\s+', ' ', section_text)
+		# Discard short sections
+		if len(section_text.split()) > 5:
+			section = SEC_START \
+			 + section_text + ' ' + SEC_END
+			parts.append(section)
+
+	full_text = ' '.join(parts).lstrip()
+	full_text = re.sub('\s+', ' ', full_text)
+	full_text = re.sub('\s\.', '.', full_text)
+	full_text = re.sub('\s,', ',', full_text)
+
+	# We don't want bad texts
+	if len(full_text) < 10:
+		full_text = None
+
+	return full_text
 
 
 def read_xml(path, nxml=False):
@@ -459,4 +473,3 @@ if __name__ == '__main__':
 		.rdd.mapPartitionsWithIndex(
 			write_bin(os.path.join(output_val_path, "val"))) \
 		.count()
-		
