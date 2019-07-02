@@ -23,93 +23,41 @@ import tensorflow as tf
 from tensorflow.core.example import example_pb2
 
 
-SENTENCE_START = '<s>'
-SENTENCE_END = '</s>'
+# Some special tokens
+SENT_START = '<s>'
+SENT_END = '</s>'
 TITLE_START = '<t>'
 TITLE_END = '</t>'
-SECTION_START = '<sec>'
-SECTION_END = '</sec>'
-
-
-def remove_namespace(tree):
-	"""Strip namespace from parsed XML."""
-	for node in tree.iter():
-		try:
-			has_namespace = node.tag.startswith('{')
-		except AttributeError:
-			continue
-		if has_namespace:
-			node.tag = node.tag.split('}', 1)[1]
-
-
-def read_xml(path, nxml=False):
-	"""Parse tree from given XML path."""
-	try:
-		tree = etree.parse(path)
-	except:
-		try:
-			tree = etree.fromstring(path)
-		except Exception as e:
-			print("Error: it was not able to read a path, a file-like object, or a string as an XML")
-			raise
-	if '.nxml' in path or nxml:
-		remove_namespace(tree)
-	return tree
-
-
-def stringify_children(node):
-	"""Recursively read the section headers and text into string."""
-	section_parts = []
-	for ch in node.getchildren():
-		string_text = ''
-		if (ch.tag == 'title') or (ch.tag == 'p'):
-			for t in ch.xpath("text()"):
-				t = t.rstrip()
-				if len(t) > 1:
-					if ch.tag == 'title':
-						string_text += ' ' + TITLE_START \
-						 + t.rstrip('(') \
-						 	.lstrip(')') \
-						 	.rstrip('[') \
-						 	.lstrip(']') + TITLE_END
-					else:
-						string_text += ' ' + t.rstrip('(') \
-							.lstrip(')') \
-							.rstrip('[') \
-							.lstrip(']')
-			section_parts.append(string_text)
-		else:
-			string_text += ' ' + stringify_children(ch)
-			section_parts.append(string_text)
-	return ' '.join(filter(None, section_parts))
+SEC_START = '<sec>'
+SEC_END = '</sec>'
 
 
 def create_filelist(in_path, out_path):
-	"""Create a list of files to read and save to txt."""
-	files_read = 0
-	nxml_sign = re.compile('\.nxml$')
-	filelist_file = os.path.join(out_path, 'filelist.txt')
-	with open(filelist_file, 'w') as of:
-		for path, dirs, files in os.walk(in_path):
-			for f in files:
-				if nxml_sign.search(f) is not None:
-					file_name = path + '/' + f
-					files_read += 1
+	""""""
+	nxml_ext_regex = re.compile('\.nxml$')
+	with open(out_path, 'w') as of:
+		for path, _, files in os.walk(in_path):
+			for file in files:
+				if nxml_ext_regex.search(file) is not None:
+					file_name = path + '/' + file
 					of.write(file_name)
 					of.write('\n')
 
-	return filelist_file
+	return out_path
 
 
-def read_data(sc, filelist, num_partitions):
-	"""Read the files from filelist into a spark dataframe."""
-	path_rdd = sc.textFile(filelist, minPartitions=num_partitions)
+def read_files(
+		sc,
+		filelist,
+		num_part):
+	""""""
+	path_rdd = sc.textFile(filelist, minPartitions=num_part)
 	df = path_rdd.map(
 			lambda x: pyspark.sql.Row(
 				file_name=os.path.basename(x),
 				**read_file(x))) \
 		.toDF() \
-		.where((F.col('abstract').isNotNull()) \
+		.filter((F.col('abstract').isNotNull()) \
 			& (F.col('pmc_id').isNotNull()) \
 			& (F.col('full_text').isNotNull()))
 
@@ -117,35 +65,26 @@ def read_data(sc, filelist, num_partitions):
 
 
 def read_file(file_path):
-	"""Read a data file and extract abstract, full text and pmc id."""
+	""""""
 	# We skip files we cannot read correctly.
 	try:
 		tree = read_xml(file_path, nxml=True)
-	except:
-		return_dict = {
+	except: # If we fail to read format
+		data_dict = {
 			'pmc_id': None,
 			'abstract': None,
 			'full_text': None
 		}
-
-		return return_dict
-	# Get the pmc id
-	try:
-		pmid_tree = tree.xpath('.//article-id')
-		for ar_id in pmid_tree:
-			if ar_id.attrib['pub-id-type'] == 'pmc':
-				pmcid = str(ar_id.xpath("text()")[0])
-	except:
-		pmcid = None
+		return data_dict
 
 	# Ignore malformed abstracts
 	try:
 		# Read abstract
 		abstracts = []
 		abstract_tree = tree.findall('.//abstract')[0]
-		if len(abstract_tree) > 1:
-			for a in abstract_tree:
-				abs_section_text = stringify_children(a)
+		if len(abstract_tree) > 1: # Else there is no abstract
+			for abstr in abstract_tree:
+				abs_section_text = stringify_children(abstr)
 				if len(abs_section_text) < 5:
 					continue
 				abs_section_text = re.sub('\s+', ' ', abs_section_text) \
@@ -153,16 +92,16 @@ def read_file(file_path):
 					.replace('\t', ' ') \
 					.strip()
 
-				# Split into sentences sentences
+				# Split into sentences
 				abs_sents = sent_tokenize(abs_section_text)
 				abs_proc_text = []
 				for sent in abs_sents:
-					proc_sent = SENTENCE_START + sent \
-					 + ' ' + SENTENCE_END
+					proc_sent = SENT_START + sent \
+					 + ' ' + SENT_END
 					abs_proc_text.append(proc_sent)
 				abs_proc_text = ' '.join(abs_proc_text)
-				abs_section = SECTION_START + abs_proc_text \
-				 + SECTION_END
+				abs_section = SEC_START + abs_proc_text \
+				 + SEC_END
 				abstracts.append(abs_section)
 
 			if not abstracts:
@@ -187,8 +126,8 @@ def read_file(file_path):
 			section_text = re.sub('\s+', ' ', section_text)
 			# Discard short sections
 			if len(section_text.split()) > 5:
-				section = SECTION_START \
-				 + section_text + ' ' + SECTION_END
+				section = SEC_START \
+				 + section_text + ' ' + SEC_END
 				parts.append(section)
 
 		full_text = ' '.join(parts).lstrip()
@@ -203,48 +142,121 @@ def read_file(file_path):
 	except:
 		full_text = None
 
-	return_dict = {
+	# Get the pmc id
+	try:
+		pmid_tree = tree.xpath('.//article-id')
+		for ar_id in pmid_tree:
+			if ar_id.attrib['pub-id-type'] == 'pmc':
+				pmcid = str(ar_id.xpath("text()")[0])
+	except:
+		pmcid = None
+
+	data_dict = {
 		'pmc_id': pmcid,
 		'abstract': abstract,
 		'full_text': full_text
 	}
 
-	return return_dict
+	return data_dict
+
+
+def read_xml(path, nxml=False):
+	"""Parse tree from given XML path."""
+	try:
+		tree = etree.parse(path)
+	except:
+		try:
+			tree = etree.fromstring(path)
+		except Exception as e:
+			print("Error: it was not able to read a path, a file-like object, or a string as an XML")
+			raise
+	if '.nxml' in path or nxml:
+		remove_namespace(tree)
+	return tree
+
+
+def remove_namespace(tree):
+	"""Strip namespace from parsed XML."""
+	for node in tree.iter():
+		try:
+			has_namespace = node.tag.startswith('{')
+		except AttributeError:
+			continue
+		if has_namespace:
+			node.tag = node.tag.split('}', 1)[1]
+
+
+def stringify_children(node):
+	""""""
+	section_parts = []
+	for ch in node.getchildren():
+		string_text = ''
+		ch_tag = ch.tag
+		if ((ch_tag == 'title') or (ch_tag == 'p')):
+			sec_tree = ch.xpath("text()")
+			for txt in sec_tree:
+				txt = txt.rstrip()
+				if len(txt) > 1:
+					if ch_tag == 'title': #headers
+						string_text += ' ' + TITLE_START \
+						 + txt.rstrip('(') \
+						 	.lstrip(')') \
+						 	.rstrip('[') \
+						 	.lstrip(']') + TITLE_END
+					else: # body
+						string_text += ' ' + txt.rstrip('(') \
+							.lstrip(')') \
+							.rstrip('[') \
+							.lstrip(']')
+			section_parts.append(string_text)
+		else: # Start recursion
+			string_text += ' ' + stringify_children(ch)
+			section_parts.append(string_text)
+	return ' '.join(filter(None, section_parts))
 
 
 def process_text():
 	"""UDF wrapper for process_text_"""
 	def process_text_(text):
-		"""Tokenize, lowercase and process a string column."""
+		""""""
 		text = text.encode('utf8')
 		try:
-			proc_text = word_tokenize(text.decode('utf8'))
-			proc_text = [wrd.lower() for wrd in proc_text]
+			processed_text = word_tokenize(text.decode('utf8'))
+			processed_text = [wrd.lower() for wrd in processed_text]
 		except:
-			proc_text = None
-			return proc_text
+			processed_text = None
+			return processed_text
 
-		proc_text = ' '.join(proc_text)
-		# Those are split during tokenization so we have to fix them
-		proc_text = re.sub('< sec >', '<sec>', proc_text)
-		proc_text = re.sub('< /sec >', '</sec>', proc_text)
-		proc_text = re.sub('< s >', '<s>', proc_text)
-		proc_text = re.sub('< /s >', '</s>', proc_text)
-		proc_text = re.sub('< t >', '<t>', proc_text)
-		proc_text = re.sub('< /t >', '</t>', proc_text)
+		processed_text = ' '.join(processed_text)
+		# Those are split by tokenizer
+		processed_text = re.sub('< sec >', '<sec>', processed_text)
+		processed_text = re.sub('< /sec >', '</sec>', processed_text)
+		processed_text = re.sub('< s >', '<s>', processed_text)
+		processed_text = re.sub('< /s >', '</s>', processed_text)
+		processed_text = re.sub('< t >', '<t>', processed_text)
+		processed_text = re.sub('< /t >', '</t>', processed_text)
 
-		return proc_text
+		return processed_text
 
 	return F.udf(process_text_, spark_types.StringType())
 
 
+def split_data(df):
+	"""Three-way split data."""
+	train_df, test_df = df.randomSplit([0.9, 0.1], seed=45)
+	val_df, test_df = test_df.randomSplit([0.5, 0.5], seed=45)
+
+	return train_df, val_df, test_dfs
+
+
 def create_vocab(df):
-	"""Create the vocanulary."""
+	""""""
 	concat_udf = F.udf(
-		lambda cols: " ".join([x for x in cols]),
+		lambda cols: " ".join([col for col in cols]),
 		spark_types.StringType())
 	df = df.withColumn(
-		'all_text', concat_udf(F.array(
+		'all_text',
+		concat_udf(F.array(
 			'processed_abstract',
 			'processed_full_text')))
 	tokenizer = ml_feature.Tokenizer(
@@ -256,49 +268,49 @@ def create_vocab(df):
 		outputCol='vectors',
 		vocabSize=200000)
 	cv_model = cv.fit(df)
-	# wrd_list is already sorted
-	wrd_list = cv_model.vocabulary
-	wrd_list.remove(SENTENCE_START)
-	wrd_list.remove(SENTENCE_END)
-	wrd_list.remove(SECTION_START)
-	wrd_list.remove(SECTION_END)
 
-	return wrd_list
+	# wrd_list is sorted by frequency
+	vocab = cv_model.vocabulary
+	vocab.remove(SENT_START)
+	vocab.remove(SENT_END)
+	vocab.remove(SEC_START)
+	vocab.remove(SEC_END)
 
-
-def write_vocab(wrd_list, out_path):
-	"""Write the vocabulary."""
-	tf.logging.info('Writing vocab file...')
-	with open(os.path.join(out_path, 'vocab'), 'w') as writer:
-		for i, word in enumerate(wrd_list):
-			writer.write(word.encode('utf8') + ' ' + str(i) + '\n')
-	tf.logging.info('Finished writing vocab file')
-
-	return
+	return vocab
 
 
 def write_ids(df, out_path, flag):
-	"""Write the pmc_ids to txt."""	
-	with open(os.path.join(out_path, flag + '_ids.txt'), 'w') as writer:
-		for id_item in df.select('pmc_id').collect():
+	""""""	
+	id_file = os.path.join(out_path, flag + '_ids.txt')
+	with open(id_file, 'w') as writer:
+		for pmcid in df.select('pmc_id').collect():
 			try:
-				writer.write('pmc' + id_item.pmc_id + '\n')
+				writer.write('pmc' + pmcid.pmc_id + '\n')
 			except:
 				pass
+	return
+
+
+def write_vocab(vocab, out_path):
+	""""""
+	with open(os.path.join(out_path, 'vocab'), 'w') as writer:
+		for i, word in enumerate(vocab):
+			writer.write(word.encode('utf8') + ' ' + str(i) + '\n')
+	tf.logging.info('Finished writing vocabulary')
 
 	return
 
 
-def write_bin(output_file_name):
+def write_bin(output_fname):
 	"""UDF wrapper for write_bin."""
 	def write_bin_(part_idx, partition):
-		"""Write each partition to a binary file."""
+		""""""
 		partition_data = list(partition)
 		num_items = len(partition_data)
-		if num_items == 0:
+		if not partition_data:
 			return partition
 
-		output_file = output_file_name + '-' + str(part_idx) + '.bin'
+		output_file = output_fname + '-' + str(part_idx) + '.bin'
 		with open(output_file, 'wb') as writer:
 			for item in partition_data:
 				abstract = item.processed_abstract.encode('utf8')
@@ -322,43 +334,17 @@ def write_bin(output_file_name):
 	return write_bin_
 
 
-def process_data(df):
-	"""Run basic processing."""
-	df = df.withColumn('processed_abstract',
-			process_text()('abstract')) \
-		.withColumn('processed_full_text',
-			process_text()('full_text')) \
-		.where(
-			(F.col('processed_full_text').isNotNull()) \
-			& (F.col('processed_abstract').isNotNull()) \
-			& (F.col('pmc_id').isNotNull())) \
-		.select(
-			'pmc_id',
-			'processed_abstract',
-			'processed_full_text')
-
-	return df
-
-
-def split_data(df):
-	"""Three-way split data."""
-	train_df, test_df = df.randomSplit([0.9, 0.1], seed=45)
-	val_df, test_df = test_df.randomSplit([0.5, 0.5], seed=45)
-
-	return train_df, val_df, test_dfs
-
-
 if __name__ == '__main__':
 
 	logging.basicConfig(
-		filename='data_prep_logs.log',
+		filename='data_preparation.log',
 		level=logging.INFO)
 
 	parser = argparse.ArgumentParser()
 	parser.add_argument(
 		'--input_path',
 		'-i',
-		help='Path to the .nxml data files')
+		help='Path to the data files')
 	parser.add_argument(
 		'--output_path',
 		'-o',
@@ -387,15 +373,16 @@ if __name__ == '__main__':
 		os.makedirs(output_test_path)
 
 	tf.logging.info('Creating filelist...')
+	filelist_file = os.path.join(output_path, 'filelist.txt')
 	file_list = create_filelist(
 		input_path,
-		output_path)
+		filelist_file)
 	sc = pyspark.SparkContext()
 	spark = pyspark.sql.SparkSession(sc)
 
 	tf.logging.info('Reading data files...')
-	df = read_data(sc, file_list, num_partitions) \
-		.repartition(num_partitions) \
+	df = read_files(sc, file_list, num_partitions) \
+		.repartition(num_partitions)
 
 	proc_df = process_data(df)
 	proc_df = proc_df.repartition(num_partitions) \
@@ -403,13 +390,13 @@ if __name__ == '__main__':
 
 	train_df, val_df, test_df = split_data(proc_df)
 
+	vocab = create_vocab(train_df)
+	tf.logging.info('Vocabulary size: %d' % len(vocab))
+	write_vocab(vocab, output_path)
+
 	write_ids(train_df, output_path, 'train')
 	write_ids(val_df, output_path, 'val')
 	write_ids(test_df, output_path, 'test')
-
-	wrd_list = create_vocab(train_df)
-	tf.logging.info('Vocabulary size: %d' % len(wrd_list))
-	write_vocab(wrd_list, output_path)
 
 	# This is hacky. We trigger the execution of write_bin by calling count.
 	train_df.repartition(num_partitions) \
