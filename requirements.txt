@@ -1,5 +1,5 @@
 lxml==4.3.4
-pyspark==2.4.0
+pyspark==3.2.2
 nltk==3.4.5
 numpy==1.14.3
 tensorflow==1.15.4
